@@ -9,4 +9,13 @@ export type Room = {
     player1Score: number;
     player2Score: number;
   };
+  betAmount: number;
+  address: {
+    gameAddress: string;
+    player1: string;
+    player2: string;
+  };
+  hasGameStarted: boolean;
+  victoryMessage: string;
+  victoryAddress: string;
 };

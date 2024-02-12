@@ -4,76 +4,122 @@ import { Room } from 'type';
 
 @Injectable()
 export class MatchmakingService {
-  private waitingPlayers: string[] = [];
-  rooms: Room[] = [];
+  private rooms: { [betAmount: number]: Room[] } = { 10: [], 20: [], 50: [] };
+  private roomMap: { [roomId: string]: Room } = {};
   constructor() {}
 
-  addToQueue(playerId: string): void {
-    this.waitingPlayers.push(playerId);
-    console.log(`Player ${playerId} added to queuarraye`);
-    this.tryToMatchPlayers();
+  addToQueue(
+    playerId: string,
+    betAmount: number,
+    address: string,
+    updateRoomCallback: (roomId: string, room: Room) => void,
+  ): Room | undefined {
+    const availableRoom = this.rooms[betAmount].find(
+      (room) => room.players.length === 1,
+    );
+
+    if (availableRoom) {
+      // Si une room est disponible, ajoute le joueur à cette room
+      this.joinRoom(availableRoom.roomId, playerId, address);
+      updateRoomCallback(availableRoom.roomId, availableRoom);
+
+      return availableRoom;
+    } else {
+      // Sinon, crée une nouvelle room avec le betAmount spécifié
+      const newRoom = this.createRoom(playerId, betAmount, address);
+      return newRoom;
+    }
   }
 
-  getRoom(roomId: string): Room | undefined {
-    return this.rooms.find((room) => room.roomId === roomId);
+  getRoomById(roomId: string): Room | undefined {
+    return this.roomMap[roomId];
   }
 
-  private createRoom(playerId: string): string {
+  private createRoom(
+    playerId: string,
+    betAmount: number,
+    player1WalletAddress: string,
+  ): Room {
     const roomId = this.generateGameId();
     const newRoom: Room = {
       roomId,
       players: [playerId],
-      choices: {
-        player1Choice: '',
-        player2Choice: '',
-      },
-      scores: {
-        player1Score: 0,
-        player2Score: 0,
-      },
+      choices: { player1Choice: '', player2Choice: '' },
+      scores: { player1Score: 0, player2Score: 0 },
+      betAmount,
+      address: { gameAddress: '', player1: player1WalletAddress, player2: '' },
+      hasGameStarted: false,
+      victoryMessage: '',
+      victoryAddress: '',
     };
-    this.rooms.push(newRoom);
-    return roomId;
+    this.rooms[betAmount].push(newRoom);
+    this.roomMap[roomId] = newRoom;
+    return newRoom;
   }
 
   private generateGameId(): string {
     return randomBytes(6).toString('hex');
   }
 
-  private joinRoom(roomId: string, playerId: string): void {
-    const room = this.rooms.find((room) => room.roomId === roomId);
-    if (room && room.players.length < 2) {
-      room.players.push(playerId);
-      console.log(`Player ${playerId} joined room ${roomId}`);
+  private joinRoom(
+    roomId: string,
+    playerId: string,
+    player2WalletAddress: string,
+  ): void {
+    let foundRoom: Room | undefined;
+    let betAmountKey: number | undefined;
+
+    for (const betAmount in this.rooms) {
+      foundRoom = this.rooms[betAmount].find((room) => room.roomId === roomId);
+      if (foundRoom) {
+        foundRoom.address.player2 = player2WalletAddress;
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        betAmountKey = Number(betAmount);
+        break;
+      }
+    }
+
+    if (foundRoom && foundRoom.players.length < 2) {
+      foundRoom.players.push(playerId);
     } else {
       console.log(`Failed to join room: ${roomId}`);
       throw new Error('Room does not exist or is full');
     }
   }
 
-  private tryToMatchPlayers(): void {
-    console.log('Trying to match players...');
-    if (this.waitingPlayers.length >= 2) {
-      const playerOneId = this.waitingPlayers.shift()!;
-      const playerTwoId = this.waitingPlayers.shift()!;
-      console.log(`Matching players: ${playerOneId} and ${playerTwoId}`);
+  updateRoom(roomId: string, updatedRoom: Room): void {
+    const room = this.roomMap[roomId];
+    if (!room) {
+      console.log(`Room with ID ${roomId} not found for update.`);
+      return;
+    }
 
-      const roomId = this.createRoom(playerOneId);
-      this.joinRoom(roomId, playerTwoId);
+    // Mettre à jour l'objet room dans roomMap
+    this.roomMap[roomId] = updatedRoom;
 
+    // Mettre à jour l'objet room dans le tableau rooms correspondant au betAmount
+    const roomsArray = this.rooms[updatedRoom.betAmount];
+    const roomIndex = roomsArray.findIndex((r) => r.roomId === roomId);
+    if (roomIndex !== -1) {
+      roomsArray[roomIndex] = updatedRoom;
+    } else {
       console.log(
-        `Room created: ${roomId} with players: ${playerOneId}, ${playerTwoId}`,
+        `Room with ID ${roomId} not found in betAmount array for update.`,
       );
-      console.log(`Current state of rooms: `, this.rooms);
     }
   }
 
   removeRoom(roomId: string): void {
-    this.rooms = this.rooms.filter((room) => room.roomId !== roomId);
-    console.log('room removed', roomId);
-  }
-
-  checkWaitingPlayerArrays(): void {
-    console.log('Waiting players: ', this.waitingPlayers);
+    const room = this.roomMap[roomId];
+    if (room) {
+      const roomsArray = this.rooms[room.betAmount];
+      this.rooms[room.betAmount] = roomsArray.filter(
+        (r) => r.roomId !== roomId,
+      );
+      delete this.roomMap[roomId];
+      console.log('Room removed', roomId);
+    } else {
+      console.log(`Failed to remove room: ${roomId}, room not found.`);
+    }
   }
 }

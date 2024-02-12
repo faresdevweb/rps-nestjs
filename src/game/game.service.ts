@@ -1,18 +1,17 @@
 import { Injectable } from '@nestjs/common';
 import { MatchmakingService } from 'src/matchmaking/matchmaking.service';
+import { WalletService } from 'src/wallet/wallet.service';
 import { PlayerChoice, Room } from 'type';
 
 @Injectable()
 export class GameService {
-  constructor(private matchmakingService: MatchmakingService) {}
+  constructor(
+    private matchmakingService: MatchmakingService,
+    private walletService: WalletService,
+  ) {}
 
   playRound(playerId: string, data: { roomId: string; choice: string }): any {
-    console.log('PLAYER ID ', playerId);
-    console.log('roomId', data.roomId);
-
-    const room = this.matchmakingService.rooms.find(
-      (room) => room.roomId === data.roomId,
-    );
+    const room = this.matchmakingService.getRoomById(data.roomId);
 
     if (!room) throw new Error('Room not found');
 
@@ -25,7 +24,6 @@ export class GameService {
 
     // Vérification des choix et mise à jour des scores
     if (room.choices.player1Choice && room.choices.player2Choice) {
-      // Dans playRound
       const roundWinner = this.determineWinner(
         room.choices.player1Choice,
         room.choices.player2Choice,
@@ -33,19 +31,29 @@ export class GameService {
 
       this.updateScores(roundWinner, room);
 
-      room.choices.player1Choice = '';
-      room.choices.player2Choice = '';
-
       console.log('ROOM STATE AFTER UPDATE', room);
 
       const gameWinner = this.checkForGameWinner(room);
+
       if (gameWinner) {
-        this.matchmakingService.removeRoom(data.roomId); // Nettoyer la room
-        console.log('GAME WINNER', gameWinner);
+        room.victoryMessage = gameWinner.message;
+        room.victoryAddress = gameWinner.address;
+        console.log('VICTORY MESSAGE', room.victoryMessage);
+        console.log(room);
+        return room;
       }
+      console.log(room);
+
+      return room;
     } else {
       console.log(`Waiting for other player's choice in room ${data.roomId}`);
     }
+  }
+
+  resetChoices(roomId: string) {
+    const room = this.matchmakingService.getRoomById(roomId);
+    room.choices.player1Choice = '';
+    room.choices.player2Choice = '';
   }
 
   private updateScores(roundWinner: any, room: Room) {
@@ -56,11 +64,26 @@ export class GameService {
     }
   }
 
-  private checkForGameWinner(room: any): string | null {
+  private checkForGameWinner(
+    room: Room,
+  ): { message: string; address: string } | null {
+    const gameContract = this.walletService.findGameContract(
+      room.address.gameAddress,
+    );
     if (room.scores.player1Score === 3) {
-      return `Player ${room.players[0]} wins the game!`;
+      // appel smart contract set winner avec l'address du vainqueur
+      gameContract.setWinner(room.address.player1);
+      return {
+        message: `Player with address : ${room.address.player1} wins the game!`,
+        address: room.address.player1,
+      };
     } else if (room.scores.player2Score === 3) {
-      return `Player ${room.players[1]} wins the game!`;
+      // appel smart contract set winner avec l'address du vainqueur
+      gameContract.setWinner(room.address.player2);
+      return {
+        message: `Player with address : ${room.address.player2} wins the game!`,
+        address: room.address.player2,
+      };
     }
     return null;
   }
